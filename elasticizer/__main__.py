@@ -46,6 +46,9 @@ def build_arg_parser():
     parser.add('--clear', action='store_true',
                default=False, dest='clear',
                help='clear all targets')
+    parser.add('--data_avail', required=False,
+               default=False, dest='data_avail',
+               help='indicates if data is already in docs_file, if so, no need to extract from database')
     return parser
 
 

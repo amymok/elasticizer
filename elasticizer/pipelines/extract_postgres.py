@@ -64,6 +64,7 @@ class Format(luigi.Task):
     sql_filter = luigi.Parameter()
     fn_es_to_sql_fields = 'psql_column_rename.json'
     marker_table = luigi.BooleanParameter()
+    data_avail = luigi.BooleanParameter()
 
     def _fields_from_mapping(self):
         with open(self.mapping_file, 'r') as fp:
@@ -128,15 +129,18 @@ class Format(luigi.Task):
         return sql
 
     def run(self):
-        fields = self._fields_from_mapping()
-        sql = self._build_sql_query(fields)
-        extractor = Extract(table=self.table).output()
-        with extractor.connect().cursor() as cur:
-            cur.execute(sql)
-            # Build the labeled ES records into a json dump
-            data = [self._projection(fields, row) for row in cur]
-            with self.output().open('w') as f:
-                json.dump(data, f, default=decimal_default)
+        if not self.data_avail:
+            fields = self._fields_from_mapping()
+            sql = self._build_sql_query(fields)
+            extractor = Extract(table=self.table).output()
+            with extractor.connect().cursor() as cur:
+                cur.execute(sql)
+                # Build the labeled ES records into a json dump
+                data = [self._projection(fields, row) for row in cur]
+                with self.output().open('w') as f:
+                    json.dump(data, f, default=decimal_default)
+        # else it means data is already available in docs_file and
+        # don't need to format 
 
 
 class ValidMapping(luigi.ExternalTask):
@@ -180,6 +184,7 @@ class ElasticIndex(CopyToIndex):
     sql_filter = luigi.Parameter()
     marker_table = luigi.BooleanParameter()
     es_timeout = luigi.IntParameter()
+    data_avail = luigi.BooleanParameter()
 
     # this is a hack to force action by Luigi through changing parameters
     date = luigi.DateMinuteParameter(default=datetime.today())
@@ -202,7 +207,7 @@ class ElasticIndex(CopyToIndex):
                 ValidMapping(mapping_file=self.mapping_file),
                 Format(mapping_file=self.mapping_file, docs_file=self.docs_file,
                        table=self.table, sql_filter=self.sql_filter,
-                       marker_table=self.marker_table)]
+                       marker_table=self.marker_table, data_avail=self.data_avail)]
 
     @property
     def timeout(self):
@@ -296,6 +301,7 @@ class Load(luigi.WrapperTask):
     sql_filter = luigi.Parameter()
     marker_table = luigi.BooleanParameter()
     es_timeout = luigi.IntParameter()
+    data_avail = luigi.BooleanParameter()
 
     def requires(self):
         return [ElasticIndex(
@@ -305,7 +311,8 @@ class Load(luigi.WrapperTask):
                     docs_file=self.docs_file,
                     table=self.table, sql_filter=self.sql_filter,
                     marker_table=self.marker_table,
-                    es_timeout=self.es_timeout)]
+                    es_timeout=self.es_timeout,
+                    data_avail=self.data_avail)]
 
     @staticmethod
     def label_indices(n_versions, index_name):
